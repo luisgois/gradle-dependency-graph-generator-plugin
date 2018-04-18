@@ -7,7 +7,6 @@ import org.gradle.api.plugins.JavaLibraryPlugin
 import org.gradle.testfixtures.ProjectBuilder
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -50,18 +49,14 @@ class DependencyGraphGeneratorPluginTest {
     integrationTest("4.0")
   }
 
-  @Test @Ignore("https://github.com/vanniktech/gradle-dependency-graph-generator-plugin/issues/23") fun integrationTestGradle30() {
-    integrationTest("3.0")
-  }
-
-  @Test @Ignore("https://github.com/vanniktech/gradle-dependency-graph-generator-plugin/issues/23") fun integrationTestGradle20() {
-    integrationTest("2.0")
+  @Test fun integrationTestGradle33() {
+    integrationTest("3.3")
   }
 
   private fun integrationTest(gradleVersion: String) {
     testProjectDir.newFile("build.gradle").writeText("""
         |plugins {
-        |  id "java-library"
+        |  id "java"
         |  id "com.vanniktech.dependency.graph.generator"
         |}
         |
@@ -70,8 +65,8 @@ class DependencyGraphGeneratorPluginTest {
         |}
         |
         |dependencies {
-        |  api "org.jetbrains.kotlin:kotlin-stdlib:1.2.30"
-        |  implementation "io.reactivex.rxjava2:rxjava:2.1.10"
+        |  compile "org.jetbrains.kotlin:kotlin-stdlib:1.2.30"
+        |  compile "io.reactivex.rxjava2:rxjava:2.1.10"
         |}
         |""".trimMargin())
 
@@ -92,18 +87,18 @@ class DependencyGraphGeneratorPluginTest {
     assertThat(File(testProjectDir.root, "build/reports/dependency-graph/dependency-graph.png")).exists()
 
     assertThat(File(testProjectDir.root, "build/reports/dependency-graph/dependency-graph.dot")).hasContent("""
-        |digraph G {
-        |  ${testProjectDir.root.name} [label="${testProjectDir.root.name}", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  ${testProjectDir.root.name} -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  ${testProjectDir.root.name} -> ioreactivexrxjava2rxjava;
-        |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-        |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-        |}
-        |""".trimMargin())
+        digraph "G" {
+        "${testProjectDir.root.name}" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "${testProjectDir.root.name}" -> "kotlin-stdlib"
+        "${testProjectDir.root.name}" -> "rxjava"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        "rxjava" -> "reactive-streams"
+        }
+        """.trimIndent())
   }
 
   @Test fun multiProjectIntegrationTest() {
@@ -120,7 +115,7 @@ class DependencyGraphGeneratorPluginTest {
         |include ":app"
         |""".trimMargin())
 
-    val lib = testProjectDir.newFolder("lib").run { parentFile.name + name }
+    testProjectDir.newFolder("lib")
     testProjectDir.newFile("lib/build.gradle").writeText("""
         |plugins { id "java-library" }
         |
@@ -131,7 +126,7 @@ class DependencyGraphGeneratorPluginTest {
         |}
         |""".trimMargin())
 
-    val lib1 = testProjectDir.newFolder("lib1").run { parentFile.name + name }
+    testProjectDir.newFolder("lib1")
     testProjectDir.newFile("lib1/build.gradle").writeText("""
         |plugins { id "java-library" }
         |
@@ -143,7 +138,7 @@ class DependencyGraphGeneratorPluginTest {
         |}
         |""".trimMargin())
 
-    val lib2 = testProjectDir.newFolder("lib2").run { parentFile.name + name }
+    testProjectDir.newFolder("lib2")
     testProjectDir.newFile("lib2/build.gradle").writeText("""
         |plugins { id "java-library" }
         |
@@ -154,7 +149,7 @@ class DependencyGraphGeneratorPluginTest {
         |}
         |""".trimMargin())
 
-    val app = testProjectDir.newFolder("app").run { parentFile.name + name }
+    testProjectDir.newFolder("app")
     testProjectDir.newFile("app/build.gradle").writeText("""
         |plugins { id "java-library" }
         |
@@ -183,25 +178,24 @@ class DependencyGraphGeneratorPluginTest {
     assertThat(File(testProjectDir.root, "build/reports/dependency-graph/dependency-graph.png")).exists()
 
     assertThat(File(testProjectDir.root, "build/reports/dependency-graph/dependency-graph.dot")).hasContent("""
-        |digraph G {
-        |  $app [label="app", shape="box"];
-        |  $lib [label="lib", shape="box"];
-        |  $lib1 [label="lib1", shape="box"];
-        |  $lib2 [label="lib2", shape="box"];
-        |  { rank = same; "$app"; "$lib"; "$lib1"; "$lib2" };
-        |  $app -> $lib1;
-        |  $lib1 -> $lib;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  $lib -> ioreactivexrxjava2rxjava;
-        |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-        |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-        |  $app -> $lib2;
-        |  $lib2 -> $lib;
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  $lib1 -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |}
-        |""".trimMargin())
+        digraph "G" {
+        "app" ["shape"="rectangle"]
+        "lib1" ["shape"="rectangle"]
+        "lib" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "lib2" ["shape"="rectangle"]
+        "app" -> "lib1"
+        "app" -> "lib2"
+        "lib1" -> "lib"
+        "lib1" -> "kotlin-stdlib"
+        "lib" -> "rxjava"
+        "rxjava" -> "reactive-streams"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        "lib2" -> "lib"
+        }
+        """.trimIndent())
   }
 }

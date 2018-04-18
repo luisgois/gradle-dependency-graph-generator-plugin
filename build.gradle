@@ -17,6 +17,7 @@ buildscript {
 }
 
 apply plugin: 'groovy'
+apply plugin: 'java-library'
 apply plugin: 'java-gradle-plugin'
 apply plugin: 'kotlin'
 apply plugin: 'com.github.ben-manes.versions'
@@ -67,6 +68,7 @@ dependencies {
   implementation localGroovy()
   implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion"
   implementation gradleApi()
+  api "guru.nidi:graphviz-java:0.4.0"
 
   testImplementation 'junit:junit:4.12'
   testImplementation 'org.assertj:assertj-core:3.9.1'

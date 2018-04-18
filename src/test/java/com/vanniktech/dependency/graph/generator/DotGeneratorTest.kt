@@ -3,12 +3,13 @@ package com.vanniktech.dependency.graph.generator
 import com.android.build.gradle.AppExtension
 import com.android.build.gradle.AppPlugin
 import com.vanniktech.dependency.graph.generator.DependencyGraphGeneratorExtension.Generator.Companion.ALL
-import com.vanniktech.dependency.graph.generator.dot.Header
-import com.vanniktech.dependency.graph.generator.dot.Color.Companion.MAX_COLOR_VALUE
-import com.vanniktech.dependency.graph.generator.dot.Shape
-import com.vanniktech.dependency.graph.generator.dot.Style
-import com.vanniktech.dependency.graph.generator.dot.Color
-import com.vanniktech.dependency.graph.generator.dot.GraphFormattingOptions
+import guru.nidi.graphviz.attribute.Color
+import guru.nidi.graphviz.attribute.Label
+import guru.nidi.graphviz.attribute.Label.Justification.LEFT
+import guru.nidi.graphviz.attribute.Label.Location.TOP
+import guru.nidi.graphviz.attribute.Shape
+import guru.nidi.graphviz.attribute.Style
+import guru.nidi.graphviz.model.MutableNode
 import org.assertj.core.api.Java6Assertions.assertThat
 import org.gradle.api.Project
 import org.gradle.api.artifacts.ResolvedDependency
@@ -63,163 +64,157 @@ class DotGeneratorTest {
     androidProjectExtension.compileSdkVersion(27)
     val manifestFile = File(androidProject.projectDir, "src/main/AndroidManifest.xml")
     manifestFile.parentFile.mkdirs()
-    manifestFile.writeText("""
-        |<?xml version="1.0" encoding="utf-8"?>
-        |<manifest package="com.foo.bar" xmlns:android="http://schemas.android.com/apk/res/android">
-        |  <application/>
-        |</manifest>""".trimMargin())
+    manifestFile.writeText("""<manifest package="com.foo.bar"/>""".trimIndent())
   }
 
   @Test fun singleProjectAllNoTestDependencies() {
     singleEmpty.dependencies.add("testImplementation", "junit:junit:4.12")
 
-    assertThat(DotGenerator(singleEmpty, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  singleempty [label="singleempty", shape="box"];
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleEmpty, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "singleempty" ["shape"="rectangle"]
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectEmptyAllNoProjects() {
-    assertThat(DotGenerator(singleEmpty, ALL.copy(includeProject = { false })).generateContent()).isEqualTo("""
-        |digraph G {
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleEmpty, ALL.copy(includeProject = { false })).generateGraph()).hasToString("""
+        digraph "G" {
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectEmptyAll() {
-    assertThat(DotGenerator(singleEmpty, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  singleempty [label="singleempty", shape="box"];
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleEmpty, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "singleempty" ["shape"="rectangle"]
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectEmptyAllHeader() {
-    assertThat(DotGenerator(singleEmpty, ALL.copy(header = Header("my custom header"))).generateContent()).isEqualTo("""
-        |digraph G {
-        |  label="my custom header" fontsize="24" height="5" labelloc="t" labeljust="c";
-        |  singleempty [label="singleempty", shape="box"];
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleEmpty, ALL.copy(label = Label.of("my custom header").locate(TOP).justify(LEFT))).generateGraph()).hasToString("""
+        digraph "G" {
+        "labeljust"="l"
+        "labelloc"="t"
+        "label"="my custom header"
+        "singleempty" ["shape"="rectangle"]
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectEmptyAllRootFormatted() {
-    assertThat(DotGenerator(singleEmpty, ALL.copy(rootFormattingOptions = GraphFormattingOptions(Shape.EGG, Style.DOTTED, Color.fromHex("#ff0099")))).generateContent()).isEqualTo("""
-        |digraph G {
-        |  singleempty [label="singleempty", shape="egg", style="dotted", color="#ff0099"];
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleEmpty, ALL.copy(projectNode = { node, _ -> node.add(Shape.EGG, Style.DOTTED, Color.rgb("ff0099")) })).generateGraph()).hasToString("""
+        digraph "G" {
+        "singleempty" ["shape"="egg","color"="#ff0099","style"="dotted"]
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectAll() {
-    assertThat(DotGenerator(singleProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  single [label="single", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  single -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  single -> ioreactivexrxjava2rxjava;
-        |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-        |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "single" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "single" -> "kotlin-stdlib"
+        "single" -> "rxjava"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        "rxjava" -> "reactive-streams"
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectAllDependencyFormattingOptions() {
     // Generate a color for each dependency.
-    val dependencyFormattingOptions: (ResolvedDependency) -> GraphFormattingOptions = {
-      val random = Random(it.hashCode().toLong())
-      GraphFormattingOptions(color = Color.fromRgb(random.nextInt(MAX_COLOR_VALUE), random.nextInt(MAX_COLOR_VALUE), random.nextInt(MAX_COLOR_VALUE))
+    val dependencyNode: (MutableNode, ResolvedDependency) -> MutableNode = { node, project ->
+      val random = Random(project.hashCode().toLong())
+      node.add(Style.FILLED, Color.hsv(random.nextDouble(), random.nextDouble(), random.nextDouble())
       )
     }
 
-    assertThat(DotGenerator(singleProject, ALL.copy(dependencyFormattingOptions = dependencyFormattingOptions)).generateContent()).isEqualTo("""
-        |digraph G {
-        |  single [label="single", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box", color="#6ba46e"];
-        |  single -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box", color="#4a09b2"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box", color="#cb660b"];
-        |  single -> ioreactivexrxjava2rxjava;
-        |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box", color="#7c70b6"];
-        |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleProject, ALL.copy(dependencyNode = dependencyNode)).generateGraph()).hasToString("""
+        digraph "G" {
+        "single" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle","color"="0.5729030306231915 0.730480096472168 0.6199754367027828","style"="filled"]
+        "jetbrains-annotations" ["shape"="rectangle","color"="0.4288231821397507 0.6911813426492972 0.6290787664264184","style"="filled"]
+        "rxjava" ["shape"="rectangle","color"="0.16317995652814232 0.937505295349677 0.3856775265969894","style"="filled"]
+        "reactive-streams" ["shape"="rectangle","color"="0.7630981414446663 0.06104724686147023 0.3765458063358519","style"="filled"]
+        "single" -> "kotlin-stdlib"
+        "single" -> "rxjava"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        "rxjava" -> "reactive-streams"
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectNoChildren() {
-    assertThat(DotGenerator(singleProject, ALL.copy(children = { false })).generateContent()).isEqualTo("""
-        |digraph G {
-        |  single [label="single", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  single -> orgjetbrainskotlinkotlinstdlib;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  single -> ioreactivexrxjava2rxjava;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleProject, ALL.copy(children = { false })).generateGraph()).hasToString("""
+        digraph "G" {
+        "single" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "single" -> "kotlin-stdlib"
+        "single" -> "rxjava"
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectFilterRxJavaOut() {
-    assertThat(DotGenerator(singleProject, ALL.copy(include = { it.moduleGroup != "io.reactivex.rxjava2" })).generateContent()).isEqualTo("""
-        |digraph G {
-        |  single [label="single", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  single -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleProject, ALL.copy(include = { it.moduleGroup != "io.reactivex.rxjava2" })).generateGraph()).hasToString("""
+        digraph "G" {
+        "single" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "single" -> "kotlin-stdlib"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        }
+        """.trimIndent())
   }
 
   @Test fun singleProjectNoDuplicateDependencyConnections() {
     // Both RxJava and RxAndroid point transitively on reactivestreams.
     singleProject.dependencies.add("implementation", "io.reactivex.rxjava2:rxandroid:2.0.2")
 
-    assertThat(DotGenerator(singleProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  single [label="single", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  single -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  single -> ioreactivexrxjava2rxjava;
-        |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-        |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-        |  ioreactivexrxjava2rxandroid [label="rxandroid", shape="box"];
-        |  single -> ioreactivexrxjava2rxandroid;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  ioreactivexrxjava2rxandroid -> ioreactivexrxjava2rxjava;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(singleProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "single" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "rxandroid" ["shape"="rectangle"]
+        "single" -> "kotlin-stdlib"
+        "single" -> "rxjava"
+        "single" -> "rxandroid"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        "rxjava" -> "reactive-streams"
+        "rxandroid" -> "rxjava"
+        }
+        """.trimIndent())
   }
 
   @Test fun multiProjectAll() {
-    assertThat(DotGenerator(multiProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  multimulti1 [label="multi1", shape="box"];
-        |  multimulti2 [label="multi2", shape="box"];
-        |  { rank = same; "multimulti1"; "multimulti2" };
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  multimulti1 -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  multimulti1 -> ioreactivexrxjava2rxjava;
-        |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-        |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  multimulti2 -> ioreactivexrxjava2rxjava;
-        |  ioreactivexrxjava2rxandroid [label="rxandroid", shape="box"];
-        |  multimulti2 -> ioreactivexrxjava2rxandroid;
-        |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-        |  ioreactivexrxjava2rxandroid -> ioreactivexrxjava2rxjava;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(multiProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "multi1" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "multi2" ["shape"="rectangle"]
+        "rxandroid" ["shape"="rectangle"]
+        "multi1" -> "kotlin-stdlib"
+        "multi1" -> "rxjava"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        "rxjava" -> "reactive-streams"
+        "multi2" -> "rxjava"
+        "multi2" -> "rxandroid"
+        "rxandroid" -> "rxjava"
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectArchitectureComponents() {
@@ -227,43 +222,36 @@ class DotGeneratorTest {
 
     androidProject.dependencies.add("implementation", "android.arch.persistence.room:runtime:1.0.0")
 
-    assertThat(DotGenerator(androidProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  android [label="android", shape="box"];
-        |  androidarchpersistenceroomruntime [label="persistence-room-runtime", shape="box"];
-        |  android -> androidarchpersistenceroomruntime;
-        |  androidarchpersistenceroomcommon [label="persistence-room-common", shape="box"];
-        |  androidarchpersistenceroomruntime -> androidarchpersistenceroomcommon;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  androidarchpersistenceroomcommon -> comandroidsupportsupportannotations;
-        |  androidarchpersistencedbframework [label="persistence-db-framework", shape="box"];
-        |  androidarchpersistenceroomruntime -> androidarchpersistencedbframework;
-        |  androidarchpersistencedb [label="persistence-db", shape="box"];
-        |  androidarchpersistencedbframework -> androidarchpersistencedb;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  androidarchpersistencedb -> comandroidsupportsupportannotations;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  androidarchpersistencedbframework -> comandroidsupportsupportannotations;
-        |  androidarchpersistencedb [label="persistence-db", shape="box"];
-        |  androidarchpersistenceroomruntime -> androidarchpersistencedb;
-        |  androidarchcoreruntime [label="core-runtime", shape="box"];
-        |  androidarchpersistenceroomruntime -> androidarchcoreruntime;
-        |  androidarchcorecommon [label="core-common", shape="box"];
-        |  androidarchcoreruntime -> androidarchcorecommon;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  androidarchcorecommon -> comandroidsupportsupportannotations;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  androidarchcoreruntime -> comandroidsupportsupportannotations;
-        |  comandroidsupportsupportcoreutils [label="support-core-utils", shape="box"];
-        |  androidarchpersistenceroomruntime -> comandroidsupportsupportcoreutils;
-        |  comandroidsupportsupportcompat [label="support-compat", shape="box"];
-        |  comandroidsupportsupportcoreutils -> comandroidsupportsupportcompat;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  comandroidsupportsupportcompat -> comandroidsupportsupportannotations;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  comandroidsupportsupportcoreutils -> comandroidsupportsupportannotations;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        "persistence-room-runtime" ["shape"="rectangle"]
+        "persistence-room-common" ["shape"="rectangle"]
+        "support-annotations" ["shape"="rectangle"]
+        "persistence-db-framework" ["shape"="rectangle"]
+        "persistence-db" ["shape"="rectangle"]
+        "core-runtime" ["shape"="rectangle"]
+        "core-common" ["shape"="rectangle"]
+        "support-core-utils" ["shape"="rectangle"]
+        "support-compat" ["shape"="rectangle"]
+        "android" -> "persistence-room-runtime"
+        "persistence-room-runtime" -> "persistence-room-common"
+        "persistence-room-runtime" -> "persistence-db-framework"
+        "persistence-room-runtime" -> "persistence-db"
+        "persistence-room-runtime" -> "core-runtime"
+        "persistence-room-runtime" -> "support-core-utils"
+        "persistence-room-common" -> "support-annotations"
+        "persistence-db-framework" -> "persistence-db"
+        "persistence-db-framework" -> "support-annotations"
+        "persistence-db" -> "support-annotations"
+        "core-runtime" -> "core-common"
+        "core-runtime" -> "support-annotations"
+        "core-common" -> "support-annotations"
+        "support-core-utils" -> "support-compat"
+        "support-core-utils" -> "support-annotations"
+        "support-compat" -> "support-annotations"
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectSqlDelight() {
@@ -271,15 +259,15 @@ class DotGeneratorTest {
 
     androidProject.dependencies.add("implementation", "com.squareup.sqldelight:runtime:0.6.1")
 
-    assertThat(DotGenerator(androidProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  android [label="android", shape="box"];
-        |  comsquareupsqldelightruntime [label="sqldelight-runtime", shape="box"];
-        |  android -> comsquareupsqldelightruntime;
-        |  comandroidsupportsupportannotations [label="support-annotations", shape="box"];
-        |  comsquareupsqldelightruntime -> comandroidsupportsupportannotations;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        "sqldelight-runtime" ["shape"="rectangle"]
+        "support-annotations" ["shape"="rectangle"]
+        "android" -> "sqldelight-runtime"
+        "sqldelight-runtime" -> "support-annotations"
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectIncludeAllFlavorsByDefault() {
@@ -295,23 +283,22 @@ class DotGeneratorTest {
     androidProject.dependencies.add("flavor2DebugImplementation", "io.reactivex.rxjava2:rxjava:2.1.10")
     androidProject.dependencies.add("flavor2ReleaseImplementation", "org.jetbrains.kotlin:kotlin-stdlib:1.2.30")
 
-    assertThat(DotGenerator(androidProject, ALL).generateContent()).isEqualTo("""
-      |digraph G {
-      |  android [label="android", shape="box"];
-      |  ioreactivexrxjava2rxandroid [label="rxandroid", shape="box"];
-      |  android -> ioreactivexrxjava2rxandroid;
-      |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-      |  ioreactivexrxjava2rxandroid -> ioreactivexrxjava2rxjava;
-      |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-      |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-      |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-      |  android -> ioreactivexrxjava2rxjava;
-      |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-      |  android -> orgjetbrainskotlinkotlinstdlib;
-      |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-      |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-      |}
-      |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        "rxandroid" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "android" -> "rxandroid"
+        "android" -> "rxjava"
+        "android" -> "kotlin-stdlib"
+        "rxandroid" -> "rxjava"
+        "rxjava" -> "reactive-streams"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectIncludeAllBuildTypesByDefault() {
@@ -325,23 +312,22 @@ class DotGeneratorTest {
     androidProject.dependencies.add("debugImplementation", "io.reactivex.rxjava2:rxjava:2.1.10")
     androidProject.dependencies.add("stagingImplementation", "org.jetbrains.kotlin:kotlin-stdlib:1.2.30")
 
-    assertThat(DotGenerator(androidProject, ALL).generateContent()).isEqualTo("""
-      |digraph G {
-      |  android [label="android", shape="box"];
-      |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-      |  android -> ioreactivexrxjava2rxjava;
-      |  orgreactivestreamsreactivestreams [label="reactive-streams", shape="box"];
-      |  ioreactivexrxjava2rxjava -> orgreactivestreamsreactivestreams;
-      |  ioreactivexrxjava2rxandroid [label="rxandroid", shape="box"];
-      |  android -> ioreactivexrxjava2rxandroid;
-      |  ioreactivexrxjava2rxjava [label="rxjava", shape="box"];
-      |  ioreactivexrxjava2rxandroid -> ioreactivexrxjava2rxjava;
-      |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-      |  android -> orgjetbrainskotlinkotlinstdlib;
-      |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-      |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-      |}
-      |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        "rxjava" ["shape"="rectangle"]
+        "reactive-streams" ["shape"="rectangle"]
+        "rxandroid" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "android" -> "rxjava"
+        "android" -> "rxandroid"
+        "android" -> "kotlin-stdlib"
+        "rxjava" -> "reactive-streams"
+        "rxandroid" -> "rxjava"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectIncludeOnlyStagingCompileClasspath() {
@@ -355,15 +341,15 @@ class DotGeneratorTest {
     androidProject.dependencies.add("debugImplementation", "io.reactivex.rxjava2:rxjava:2.1.10")
     androidProject.dependencies.add("stagingImplementation", "org.jetbrains.kotlin:kotlin-stdlib:1.2.30")
 
-    assertThat(DotGenerator(androidProject, ALL.copy(includeConfiguration = { it.name == "stagingCompileClasspath" })).generateContent()).isEqualTo("""
-        |digraph G {
-        |  android [label="android", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib [label="kotlin-stdlib", shape="box"];
-        |  android -> orgjetbrainskotlinkotlinstdlib;
-        |  orgjetbrainsannotations [label="jetbrains-annotations", shape="box"];
-        |  orgjetbrainskotlinkotlinstdlib -> orgjetbrainsannotations;
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL.copy(includeConfiguration = { it.name == "stagingCompileClasspath" })).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        "kotlin-stdlib" ["shape"="rectangle"]
+        "jetbrains-annotations" ["shape"="rectangle"]
+        "android" -> "kotlin-stdlib"
+        "kotlin-stdlib" -> "jetbrains-annotations"
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectDoNotIncludeTestDependency() {
@@ -371,11 +357,11 @@ class DotGeneratorTest {
 
     androidProject.dependencies.add("testImplementation", "junit:junit:4.12")
 
-    assertThat(DotGenerator(androidProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  android [label="android", shape="box"];
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        }
+        """.trimIndent())
   }
 
   @Test fun androidProjectDoNotIncludeAndroidTestDependency() {
@@ -383,10 +369,10 @@ class DotGeneratorTest {
 
     androidProject.dependencies.add("androidTestImplementation", "junit:junit:4.12")
 
-    assertThat(DotGenerator(androidProject, ALL).generateContent()).isEqualTo("""
-        |digraph G {
-        |  android [label="android", shape="box"];
-        |}
-        |""".trimMargin())
+    assertThat(DotGenerator(androidProject, ALL).generateGraph()).hasToString("""
+        digraph "G" {
+        "android" ["shape"="rectangle"]
+        }
+        """.trimIndent())
   }
 }
